@@ -30,14 +30,14 @@ class progressBar():
         self.T1 = time.time()
         est_time = int((1-progress_float)/progress_float * (self.T1-self.T0))
         elapsed_time = int(self.T1-self.T0)
-        print(f"Running: |{progress_str}|{progress_float:6.1%} \t T ~ { est_time//60:3d}m {est_time%60:2d}s left \t (tot: {(elapsed_time+est_time)//60:3d}m {(elapsed_time+est_time)%60:2d}s){' ':100}", end='\r')
+        print(f"Running: |{progress_str}|{progress_float:6.1%} \t T ~ { est_time//60:3d}m {est_time%60:2d}s left \t (tot: {(elapsed_time+est_time)//60:3d}m {(elapsed_time+est_time)%60:2d}s){' ':30}", end='\r')
 
     def finished(self):
         self.currentTicks = self.maxTicks
         progress_float = 1.0
         self.T1 = time.time()
         elapsed_time = int(self.T1-self.T0)
-        print(f"Finished:|{'-'*((self.size-4)//2)}DONE{'-'*((self.size-3)//2)}|{progress_float:6.1%} \t T elapsed: { elapsed_time//60:3d}m {elapsed_time%60:2d}s {' ':100}")
+        print(f"Finished:|{'-'*((self.size-4)//2)}DONE{'-'*((self.size-3)//2)}|{progress_float:6.1%} \t T elapsed: { elapsed_time//60:3d}m {elapsed_time%60:2d}s {' ':60}")
 
 
 
