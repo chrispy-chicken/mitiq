@@ -8,7 +8,7 @@ Virtual Distillation (VD) is an error mitigation technique in which
 width: 700px
 name: vd-workflow-overview
 ---
-Workflow of the DDD technique in Mitiq, detailed in the [What happens when I use DDD?](ddd-4-low-level.md) section.
+Workflow of the VD technique in Mitiq, detailed in the [What happens when I use VD?](vd-4-low-level.md) section.
 ```
 
 Below you can find sections of the documentation that address the following questions:
@@ -17,16 +17,16 @@ Below you can find sections of the documentation that address the following ques
 ---
 maxdepth: 1
 ---
-ddd-1-intro.md
-ddd-2-use-case.md
-ddd-3-options.md
-ddd-4-low-level.md
-ddd-5-theory.md
+vd-1-intro.md
+vd-2-use-case.md
+vd-3-options.md
+vd-4-low-level.md
+vd-5-theory.md
 ```
 
-Here is a tutorial on how to use DDD in Mitiq:
+Here is a tutorial on how to use VD in Mitiq:
 
-[DDD with Cirq: Mirror circuits](../examples/ddd_tutorial.md)
+[VD example tutorial](TODO: link to notebook)
 
 You can find many more examples on a variety of error mitigation techniques in the **[Examples](../examples/examples.md)** section of
 the documentation.

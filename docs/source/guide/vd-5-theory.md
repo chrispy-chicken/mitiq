@@ -13,12 +13,12 @@ kernelspec:
 
 # What is the theory behind VD?
 
-Virtual Distillation (VD) is a quantum error mitigation technique introduced in the paper {cite}`Huggins_2021`. This method is designed to suppress noise in NISQ devices by using multiple noisy copies of a quantum state to estimate expectation values with respect to a "virtually distilled" state, \( $\rho^M / \text{Tr}(\rho^M)$ \). By doing so, VD effectively reduces the influence of non-dominant eigenvectors in the density matrix, achieving an exponential suppression of errors as the number of copies \( M \) increases. Crucially, VD does not require the explicit preparation of the purified state, making it computationally efficient for near-term quantum devices.
+Virtual Distillation (VD) is a quantum error mitigation technique introduced in the paper {cite}`Huggins_2021`. This method is designed to suppress noise in NISQ devices by using multiple noisy copies of a quantum state to estimate expectation values with respect to a "virtually distilled" state, \( $\rho^M / \text{Tr}(\rho^M)$ \). By doing so, VD effectively reduces the influence of non-dominant eigenvectors in the density matrix. The resulting estimator converges exponentially quickly towards the closest pure state to ρ as M is increased. Crucially, VD does not require the explicit preparation of the purified state, making it computationally efficient for near-term quantum devices.
 
 The VD protocol consists of the following steps:
 
 1. **Obtain Multiple Copies of the Noisy State.**  
-   The method begins by preparing \( M \) independent noisy copies of the quantum state \(⍴\), with \( M = 2 \) being a common starting point for balancing resource requirements with error suppression. The copies are assumed to experience similar noise characteristics.
+   The method begins by preparing M independent noisy copies of the quantum state ⍴, with M = 2 being a common starting point for balancing resource requirements with error suppression. The copies are assumed to experience similar noise characteristics.
 
 2. **Perform Collective Measurements.**  
    Collective measurements are applied across the \( M \) copies to estimate expectation values of an observable \( X \) for the virtually distilled state \( $\rho^M / \text{Tr}(\rho^M)$ \). These measurements rely on evaluating quantities such as \( $\text{Tr}(X \rho^M) $\) and \( $\text{Tr}(\rho^M) $\), which involve operators like the cyclic shift operator and symmetrized observables.
