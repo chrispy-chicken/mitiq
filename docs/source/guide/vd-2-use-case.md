@@ -19,7 +19,7 @@ kernelspec:
 
 - VD can be used complementarily with other error mitigation and calibration techniques, allowing for higher levels of errors reduction.
 
-
+- The explicit preparation of the $\rho$ density matrix is not required, thus allowing for higher suppression and more computational efficiency. 
 
 
 ## Disadvantages
@@ -31,3 +31,5 @@ kernelspec:
 - Currently the implementation of VD only allows for measurement on the Z observable and will not function as desired if non-Z observables are passed to it.
 
 - The VD implementation occasional results in a divide by zero error. This occurs only when the number of iterations is even and typically when that number is fairly low (under 100). In order to circumvent this known error, only run the function with an odd number of K-iterations.
+
+- The current implementation only allows for M = 2 number of copies.
