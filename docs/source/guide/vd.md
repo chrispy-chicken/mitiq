@@ -28,5 +28,4 @@ Here is a tutorial on how to use VD in Mitiq:
 
 [VD example tutorial](TODO: link to notebook)
 
-You can find many more examples on a variety of error mitigation techniques in the **[Examples](../examples/examples.md)** section of
-the documentation.
+You can find many more examples on a variety of error mitigation techniques in the **[Examples](../examples/examples.md)** section of the documentation.
