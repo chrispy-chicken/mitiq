@@ -90,7 +90,7 @@ def failed_attempt_to_optimise_execute_with_vd(input_rho: cirq.Circuit, M: int=2
     
     # Forcing odd K, this is a workaround so that D (see end of the function) cannot be 0 accidentally
     if K%2 == 0:
-        K += 1
+        K -= 1
 
     # Helper function to map the results to the eigenvalues of the pauli Z observable
     def map_to_eigenvalues(measurement):
@@ -213,7 +213,7 @@ def executor_execute_with_vd(
     
     # Forcing odd K, this is a workaround so that D (see end of the function) cannot be 0 accidentally
     if K%2 == 0:
-        K += 1
+        K -= 1
 
     # Changing basis to accomodate different observables 
     # Out of scope for the mitiq-UvA project
@@ -344,7 +344,7 @@ def execute_with_vd(input_rho: cirq.Circuit, M: int=2, K: int=100, observable=Z)
     
     # Forcing odd K, this is a workaround so that D (see end of the function) cannot be 0 accidentally
     if K%2 == 0:
-        K += 1
+        K -= 1
 
     for _ in range(K):
         
@@ -464,6 +464,10 @@ def optimized_execute_with_vd(input_circuit: cirq.Circuit,
 
     simulator = cirq.Simulator()
     result = simulator.run(vd_circuit, repetitions=K)
+
+     # Forcing odd K, this is a workaround so that D (see end of the function) cannot be 0 accidentally
+    if K%2 == 0:
+        K -= 1
 
     for k in range(K):
         z1 = []
