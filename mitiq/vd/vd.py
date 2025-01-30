@@ -2,7 +2,11 @@ import mitiq
 import cirq
 import numpy as np
 from mitiq import QPROGRAM, Executor, Observable, QuantumResult
-from typing import Callable, List, Optional, Sequence, Union
+from mitiq.executor.executor import DensityMatrixLike, MeasurementResultLike
+from typing import Callable, Optional, Union
+
+
+
 
 # This virtual distillation works only for M = 2 copies of the state rho
 M = 2
@@ -169,14 +173,71 @@ def failed_attempt_to_optimise_execute_with_vd(input_rho: cirq.Circuit, M: int=2
 
     return Z_i_corrected
 
+def create_S2_N_matrix(N_qubits):
+    """
+    Function that creates a matrix corresponding to the cyclic swap operation of two N qubit circuits
+    Input: N_qubits: number of qubits in one circuit
+    output: np.array of the unitary quantum gate on 2*N qubits that swaps the circuits.    
+    """
+    M = 2 # change this to an argument once support for other values is added
 
-  
+
+    SWAP_matrix = np.array([
+        [1,0,0,0],
+        [0,0,1,0],
+        [0,1,0,0],
+        [0,0,0,1]
+    ])
+
+    swap_step_matrices = [0 for _ in range(N_qubits)]
+    swap_step_matrices[0] = SWAP_matrix
+    swap_step_matrices[-1] = SWAP_matrix
+
+
+    # create the SWAP^tensor(i) matrix
+    for i in range(1, N_qubits):
+        swap_step_matrices[i] = np.kron(swap_step_matrices[i-1], SWAP_matrix)
+
+
+
+    def add_swap_step(i, matrix):
+               
+        # Create the I^tensor(N-i)SWAP^tensor(i)I^tensor(N-i) matrix
+        step_matrix = np.kron( np.eye(2**(N_qubits - i)), np.kron(swap_step_matrices[i-1], np.eye(2**(N_qubits - i)) ) )
+        
+        # Apply swapping step
+        return step_matrix @ matrix
+
+
+    S_matrix = np.eye(2 ** (M*N_qubits))
+    
+    # let i go up from 1 to N
+    for i in range(1, N_qubits+1):
+        S_matrix = add_swap_step(i, S_matrix)
+    
+    # let i go back down from N-1 to 1
+    for i in range(N_qubits-1, 0,-1):
+        S_matrix = add_swap_step(i, S_matrix)
+    
+    return S_matrix
+
+def create_symmetric_observable_matrices(observable, N_qubits):
+    M = 2 # change this to an argument once support for other values is added
+
+    sym_observable_matrices = []
+    for i in range(N_qubits):
+        observable_i_matrix = np.kron(np.kron(np.eye(2**i), observable), np.eye(2**(N_qubits-i-1)))
+        sym_observable_matrix = 0.5 * (np.kron(observable_i_matrix, np.eye(2**N_qubits)) + np.kron(np.eye(2**N_qubits), observable_i_matrix))
+        sym_observable_matrices.append(sym_observable_matrix)
+
+    return np.array(sym_observable_matrices)
+
 def executor_execute_with_vd(
         circuit: QPROGRAM, 
         executor: Union[Executor, Callable[[QPROGRAM], QuantumResult]], 
         M: int=2, 
         K: int=100, 
-        observable: Optional[Observable] = None,
+        observable: Optional[Observable] = np.array([[1., 0.], [0.,-1.]]),
     ) -> list[float]:
     '''
     Given a circuit rho that acts on N qubits, this function returns the expectation values of a given observable for each qubit i. 
@@ -186,11 +247,13 @@ def executor_execute_with_vd(
         circuit: The input circuit of N qubits to execute with VD.
         executor: A Mitiq executor that executes a circuit and returns the
                     unmitigated ``QuantumResult`` (e.g. an expectation value).
-        M: The number of copies of rho
-        K: The number of iterations of the algorithm
-        observable: The observable for which the expectation values are computed. 
+                    The executor must either return a single measurement (bitstring or list),
+                    a list of measurements
+        M: The number of copies of rho. Only M=2 is implemented at this moment.
+        K: The number of iterations of the algorithm. Only used if the executor returns a single measurement.
+        observable: The one qubit observable for which the expectation values are computed. 
                     The default observable is the Pauli Z matrix.
-                    At the moment using different observables is not yet supported.
+                    At the moment using different observables is not supported.
 
     Returns:
         A list of expectation values for each qubit i in the circuit. Estimated with VD.
@@ -236,80 +299,102 @@ def executor_execute_with_vd(
     for i in range(N):
         rho.append(B_gate(cirq.LineQubit(i), cirq.LineQubit(i+N)))
 
-    # 3) apply measurements
-    # the measurement keys are applied in accordance with the SWAPS that are applied in the pseudo code in the paper.
-    # The SWAP operations are omitted here since they are hardware specific.
-    for i in range(M*N):
-        rho.append(cirq.measure(cirq.LineQubit(i), key=f"{i}"))
-
     if not isinstance(executor, Executor):
         executor = Executor(executor)
+    
+    if executor._executor_return_type in DensityMatrixLike:
+        # do density matrix treatment
 
-    for _ in range(K):
-        
-        rho_copy = rho.copy()
+        rho_tensorM = executor.run(rho)
+        # print(f"rho^tensor M:\n{rho_tensorM}")
+        symmetric_Obs_i = create_symmetric_observable_matrices(observable, N)
+        # print(f"O_i sym:\n{symmetric_Obs_i}")
+        two_system_swap = create_S2_N_matrix(N)
+        # print(f"S2_N:\n{two_system_swap}")
+
+        Z_i_corrected = np.trace(symmetric_Obs_i@ two_system_swap@ rho_tensorM, axis1=1, axis2=2) / np.trace(two_system_swap@ rho_tensorM, axis1=1, axis2=2)
 
 
-        
-        # for i in range(N):
-        #     rho_copy.append(cirq.measure(cirq.LineQubit(i), key=f"{2*i}"))
-        # for i in range(N):
-        #     rho_copy.append(cirq.measure(cirq.LineQubit(i+N), key=f"{2*i+1}"))
-        
-        # # run the circuit
-        # simulator = cirq.Simulator()
-        # result = simulator.run(rho_copy, repetitions=1)
+    elif executor._executor_return_type in MeasurementResultLike:
+
+        #  3) apply measurements
+        # The measurements are only added when the executor returns measurement values
+        # the measurement keys are applied in accordance with the SWAPS that are applied in the pseudo code in the paper.
+        # The SWAP operations are omitted here since they are hardware specific.
+        for i in range(M*N):
+            rho.append(cirq.measure(cirq.LineQubit(i), key=f"{i}"))
+
+        for _ in range(K):
+            
+            rho_copy = rho.copy()
+
+
+            
+            # for i in range(N):
+            #     rho_copy.append(cirq.measure(cirq.LineQubit(i), key=f"{2*i}"))
+            # for i in range(N):
+            #     rho_copy.append(cirq.measure(cirq.LineQubit(i+N), key=f"{2*i+1}"))
+            
+            # # run the circuit
+            # simulator = cirq.Simulator()
+            # result = simulator.run(rho_copy, repetitions=1)
+                    
+            # Run all circuits.
+            
+
+
+            # executor should return a list of expectation values
+            res = executor.evaluate(rho_copy, observable, force_run_all=True)[0]
+
+
+            # post processing measurements
+            z1 = res[:N]
+            z2 = res[N:]
+            # print(N)
+            # print(f"res:{res}\nz1: {z1}\nz2: {z2}")
+            # print(f"res:{res[1]}\nz1: {z1[1]}\nz2: {z2[1]}")
+            
+            # for i in range(2*N):
+            #     if i % 2 == 0:
+            #         z1.append(np.squeeze(result.records[str(i)]))
+            #     else:
+            #         z2.append(np.squeeze(result.records[str(i)]))
+
+            # # this one is for the pauli Z obvservable
+            # def map_to_eigenvalues(measurement):
+            #     if measurement == 0:
+            #         return 1
+            #     else:
+            #         return -1
                 
-        # Run all circuits.
-        
+            # z1 = [map_to_eigenvalues(i) for i in z1]
+            # z2 = [map_to_eigenvalues(i) for i in z2]
 
+            for i in range(N):
+                
+                productE = 1
+                for j in range(N):
+                    if i != j:
+                        productE *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )
 
-        # executor should return a list of expectation values
-        res = executor.evaluate(rho_copy, observable, force_run_all=True)[0]
+                Ei[i] += 1/2**N * (z1[i] + z2[i]) * productE
 
-
-        # post processing measurements
-        z1 = res[:N]
-        z2 = res[N:]
-        # print(N)
-        # print(f"res:{res}\nz1: {z1}\nz2: {z2}")
-        # print(f"res:{res[1]}\nz1: {z1[1]}\nz2: {z2[1]}")
-        
-        # for i in range(2*N):
-        #     if i % 2 == 0:
-        #         z1.append(np.squeeze(result.records[str(i)]))
-        #     else:
-        #         z2.append(np.squeeze(result.records[str(i)]))
-
-        # # this one is for the pauli Z obvservable
-        # def map_to_eigenvalues(measurement):
-        #     if measurement == 0:
-        #         return 1
-        #     else:
-        #         return -1
-            
-        # z1 = [map_to_eigenvalues(i) for i in z1]
-        # z2 = [map_to_eigenvalues(i) for i in z2]
-
-        for i in range(N):
-            
-            productE = 1
+            productD = 1
             for j in range(N):
-                if i != j:
-                    productE *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )
+                productD *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )
 
-            Ei[i] += 1/2**N * (z1[i] + z2[i]) * productE
+            D += 1/2**N * productD 
+            
+        # Element wise division by D, since we are working with numpy arrays
+        Z_i_corrected = Ei / D
+    else:
+        raise ValueError("Executor must have a return type of DensityMatrixLike or MeasurementResultLike")
 
-        productD = 1
-        for j in range(N):
-            productD *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )
-
-        D += 1/2**N * productD 
-        
-    # Element wise division by D, since we are working with numpy arrays
-    Z_i_corrected = Ei / D
-
-    return Z_i_corrected
+    if not np.allclose(Z_i_corrected.real, Z_i_corrected, atol=1e-6):
+        print("Warning: The expectation value contains a significant imaginary part. This should never happen.")
+        return Z_i_corrected
+    else:
+        return Z_i_corrected.real
 
 def execute_with_vd(input_rho: cirq.Circuit, M: int=2, K: int=100, observable=Z) -> list[float]:
     '''

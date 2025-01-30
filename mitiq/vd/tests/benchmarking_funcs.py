@@ -90,7 +90,11 @@ def expectation_Zi(circuit):
     # print(Zi_operators)
 
     Zi = np.trace(Zi_operators@ dm, axis1=1, axis2=2)
-    return Zi
+    if not np.allclose(Zi.real, Zi, atol=1e-6):
+        print("Warning: The expectation value contains a significant imaginary part. This should never happen.")
+        return Zi
+    else:
+        return Zi.real
 
 def vector_norm_distance(V, W):
     return np.linalg.norm((V - W))
