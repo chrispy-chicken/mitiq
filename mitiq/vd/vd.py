@@ -1,10 +1,10 @@
 import mitiq
 import cirq
 import numpy as np
-from mitiq import QPROGRAM, Executor, Observable, QuantumResult
+from mitiq import QPROGRAM, Executor, Observable, QuantumResult, MeasurementResult
 from mitiq.executor.executor import DensityMatrixLike, MeasurementResultLike
 from typing import Callable, Optional, Union
-
+import time
 
 
 
@@ -173,6 +173,7 @@ def failed_attempt_to_optimise_execute_with_vd(input_rho: cirq.Circuit, M: int=2
 
     return Z_i_corrected
 
+# NO LONGER NEEDED
 def create_S2_N_matrix(N_qubits):
     """
     Function that creates a matrix corresponding to the cyclic swap operation of two N qubit circuits
@@ -221,23 +222,89 @@ def create_S2_N_matrix(N_qubits):
     
     return S_matrix
 
-def create_symmetric_observable_matrices(observable, N_qubits):
-    M = 2 # change this to an argument once support for other values is added
+def apply_cyclic_system_permutation(matrix, N_qubits, M=2):
+    """
+        Function that shifts the rows of a matrix or vector in such a way, 
+        that each of the M registers of N_qubit qubits are shifted cyclically.
+        The implementation is identical to left multiplication with repeated swap gates,
+        however this optimisation in considerably faster. 
+    """
+    matrix = np.array(matrix)
+    
+    # determine the row permutation for the cyclic shift operation
+    permutation = [j+i for j in range(2**N_qubits) for i in range(0, 2**(M*N_qubits), 2**N_qubits)]
+    
+    # Some fancy index magic to permute the rows in O(n) time and space (n=2**(M*N_qubits))
+    idx = np.empty_like(permutation)
+    idx[permutation] = np.arange(len(permutation))
 
-    sym_observable_matrices = []
-    for i in range(N_qubits):
-        observable_i_matrix = np.kron(np.kron(np.eye(2**i), observable), np.eye(2**(N_qubits-i-1)))
-        sym_observable_matrix = 0.5 * (np.kron(observable_i_matrix, np.eye(2**N_qubits)) + np.kron(np.eye(2**N_qubits), observable_i_matrix))
-        sym_observable_matrices.append(sym_observable_matrix)
+    # allow to work with lists or arrays of np.ndarrays
+    if matrix.ndim == 2:
+        matrix = matrix[idx] 
+    elif matrix.ndim == 3:
+        matrix[:] = matrix[:, idx]
+    else:
+        raise TypeError("matrix must be a 2 dimensional array or a listor array of 2 dimensional arrays") 
+    return matrix
 
-    return np.array(sym_observable_matrices)
+def apply_symmetric_observable(matrix, N_qubits, observable = None, M=2):
+    if observable == None or np.allclose(observable, np.array([[1., 0.], [0.,-1.]])):
+        # use the default Z observable
+        sym_observable_diagonals = []
+        for i in range(N_qubits):
+            observable_i_diagonal = np.array([ j for k in range(2**(i)) for j in [1., -1.] for l in range(2**(N_qubits-i-1))])
+            
+            # turn [a, b, c] into [a,a,a,b,b,b,c,c,c]. This is the same as tensoring the N_qubit identity on the right
+            observable_i_diagonal_system1 = np.array([observable_i_diagonal for _ in range(2**N_qubits) ]).flatten('F')
+            # turn [a,b,c] into [a,b,c,a,b,c,a,b,c]. This is the same as tensoring the N_qubit identity on the left
+            observable_i_diagonal_system2 = np.array([observable_i_diagonal for _ in range(2**N_qubits) ]).flatten('C')
+            # add the symmetric observable
+            sym_observable_diagonals.append(0.5 * (observable_i_diagonal_system1 + observable_i_diagonal_system2))
+        
+        if matrix.ndim == 2:
+            return np.array([sod * matrix for sod in sym_observable_diagonals])
+        elif matrix.ndim == 3:
+            return np.array([sod * mat for sod in sym_observable_diagonals for mat in matrix])
+        return 
+
+    else:
+        sym_observable_matrices = []
+        for i in range(N_qubits):
+            observable_i_matrix = np.kron(np.kron(np.eye(2**i), observable), np.eye(2**(N_qubits-i-1)))
+            sym_observable_matrix = 0.5 * (np.kron(observable_i_matrix, np.eye(2**N_qubits)) + np.kron(np.eye(2**N_qubits), observable_i_matrix))
+            sym_observable_matrices.append(sym_observable_matrix)
+
+    return np.array(sym_observable_matrices) @ matrix
+
+class style():
+    black = '\033[30m'
+    red = '\033[31m'
+    green = '\033[32m'
+    yellow = '\033[33m'
+    blue = '\033[34m'
+    magenta = '\033[35m'
+    cyan = '\033[36m'
+    white = '\033[37m'
+    BLACK = '\033[90m'
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    red_BG = '\033[41m'
+    white_BG = '\033[47m'
+    UNDERLINE = '\033[4m'
+    RESET = '\033[0m'
 
 def executor_execute_with_vd(
         circuit: QPROGRAM, 
         executor: Union[Executor, Callable[[QPROGRAM], QuantumResult]], 
         M: int=2, 
         K: int=100, 
-        observable: Optional[Observable] = np.array([[1., 0.], [0.,-1.]]),
+        observable: Optional[Observable] = None,
+        display_performance: bool = False
     ) -> list[float]:
     '''
     Given a circuit rho that acts on N qubits, this function returns the expectation values of a given observable for each qubit i. 
@@ -258,6 +325,8 @@ def executor_execute_with_vd(
     Returns:
         A list of expectation values for each qubit i in the circuit. Estimated with VD.
     '''
+    T0 =time.time()
+    timing_statements = []
 
     # input rho is an N qubit circuit
     N = len(circuit.all_qubits())
@@ -292,28 +361,41 @@ def executor_execute_with_vd(
         #     for i in range(M*N):
         #         rho_copy.append(gate(cirq.LineQubit(i)))
 
-
+    
     # 2) apply the diagonalization gate B
     # once again this specific code is for M = 2
     B_gate = cirq.MatrixGate(Bi_gate)
     for i in range(N):
         rho.append(B_gate(cirq.LineQubit(i), cirq.LineQubit(i+N)))
-
+    
     if not isinstance(executor, Executor):
         executor = Executor(executor)
+    T1 =time.time()
+    timing_statements.append(f"{style.white}{'Preparation step':30s} ~ {T1-T0:8.3f} s{style.RESET}")
     
     if executor._executor_return_type in DensityMatrixLike:
         # do density matrix treatment
 
         rho_tensorM = executor.run(rho)
+        T2 =time.time()
+        timing_statements.append(f"{style.red}{'Simulation step':30s} ~ {T2-T1:8.3f} s{style.RESET}")
         # print(f"rho^tensor M:\n{rho_tensorM}")
-        symmetric_Obs_i = create_symmetric_observable_matrices(observable, N)
-        # print(f"O_i sym:\n{symmetric_Obs_i}")
-        two_system_swap = create_S2_N_matrix(N)
+       
+        # two_system_swap = create_S2_N_matrix(N)
+        rho_tensorM_swapped = apply_cyclic_system_permutation(rho_tensorM, N)
+        T3 =time.time()
+        timing_statements.append(f"{style.yellow}{'Apply cyclic swap':30s} ~ {T3-T2:8.3f} s{style.RESET}")
         # print(f"S2_N:\n{two_system_swap}")
 
-        Z_i_corrected = np.trace(symmetric_Obs_i@ two_system_swap@ rho_tensorM, axis1=1, axis2=2) / np.trace(two_system_swap@ rho_tensorM, axis1=1, axis2=2)
+        rho_tensorM_swapped_observabled = apply_symmetric_observable(rho_tensorM_swapped, N, observable)
+        T4 =time.time()
+        timing_statements.append(f"{style.cyan}{'Observable creation':30s} ~ {T4-T3:8.3f} s{style.RESET}")
+        # print(f"O_i sym:\n{symmetric_Obs_i}")
 
+        Z_i_corrected = np.trace(rho_tensorM_swapped_observabled, axis1=1, axis2=2) / np.trace(rho_tensorM_swapped, axis1=1, axis2=2)
+        
+        T5 =time.time()
+        timing_statements.append(f"{style.green}{'Computation step':30s} ~ {T5-T4:8.3f} s{style.RESET}")
 
     elif executor._executor_return_type in MeasurementResultLike:
 
@@ -324,71 +406,64 @@ def executor_execute_with_vd(
         for i in range(M*N):
             rho.append(cirq.measure(cirq.LineQubit(i), key=f"{i}"))
 
-        for _ in range(K):
-            
-            rho_copy = rho.copy()
+        if executor._executor_return_type == MeasurementResult: # the executor only measures one shot
+            for _ in range(K):
+                
+                rho_copy = rho.copy()
+
+                res = executor.evaluate(rho_copy, observable, force_run_all=True)
 
 
-            
-            # for i in range(N):
-            #     rho_copy.append(cirq.measure(cirq.LineQubit(i), key=f"{2*i}"))
-            # for i in range(N):
-            #     rho_copy.append(cirq.measure(cirq.LineQubit(i+N), key=f"{2*i+1}"))
-            
-            # # run the circuit
-            # simulator = cirq.Simulator()
-            # result = simulator.run(rho_copy, repetitions=1)
+                # post processing measurements
+                z1 = res[:N]
+                z2 = res[N:]
+                # print(N)
+                # print(f"res:{res}\nz1: {z1}\nz2: {z2}")
+                # print(f"res:{res[1]}\nz1: {z1[1]}\nz2: {z2[1]}")
+                
+                # for i in range(2*N):
+                #     if i % 2 == 0:
+                #         z1.append(np.squeeze(result.records[str(i)]))
+                #     else:
+                #         z2.append(np.squeeze(result.records[str(i)]))
+
+                # # this one is for the pauli Z obvservable
+                # def map_to_eigenvalues(measurement):
+                #     if measurement == 0:
+                #         return 1
+                #     else:
+                #         return -1
                     
-            # Run all circuits.
-            
+                # z1 = [map_to_eigenvalues(i) for i in z1]
+                # z2 = [map_to_eigenvalues(i) for i in z2]
 
+                for i in range(N):
+                    
+                    productE = 1
+                    for j in range(N):
+                        if i != j:
+                            productE *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )
 
-            # executor should return a list of expectation values
-            res = executor.evaluate(rho_copy, observable, force_run_all=True)[0]
+                    Ei[i] += 1/2**N * (z1[i] + z2[i]) * productE
 
-
-            # post processing measurements
-            z1 = res[:N]
-            z2 = res[N:]
-            # print(N)
-            # print(f"res:{res}\nz1: {z1}\nz2: {z2}")
-            # print(f"res:{res[1]}\nz1: {z1[1]}\nz2: {z2[1]}")
-            
-            # for i in range(2*N):
-            #     if i % 2 == 0:
-            #         z1.append(np.squeeze(result.records[str(i)]))
-            #     else:
-            #         z2.append(np.squeeze(result.records[str(i)]))
-
-            # # this one is for the pauli Z obvservable
-            # def map_to_eigenvalues(measurement):
-            #     if measurement == 0:
-            #         return 1
-            #     else:
-            #         return -1
-                
-            # z1 = [map_to_eigenvalues(i) for i in z1]
-            # z2 = [map_to_eigenvalues(i) for i in z2]
-
-            for i in range(N):
-                
-                productE = 1
+                productD = 1
                 for j in range(N):
-                    if i != j:
-                        productE *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )
+                    productD *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )
 
-                Ei[i] += 1/2**N * (z1[i] + z2[i]) * productE
+                D += 1/2**N * productD 
+        else: # the K shots are already performed by the executor 
+            pass
 
-            productD = 1
-            for j in range(N):
-                productD *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )
-
-            D += 1/2**N * productD 
-            
         # Element wise division by D, since we are working with numpy arrays
         Z_i_corrected = Ei / D
     else:
         raise ValueError("Executor must have a return type of DensityMatrixLike or MeasurementResultLike")
+
+
+    timing_statements.append(f"Total time: {T5-T0:8.3f} sec. |{style.white}{int(100*(T1-T0)/(T5-T0))*'#'}{style.red}{int(100*(T2-T1)/(T5-T0))*'#'}{style.cyan}{int(100*(T4-T3)/(T5-T0))*'#'}{style.yellow}{int(100*(T3-T2)/(T5-T0))*'#'}{style.green}{int(100*(T5-T4)/(T5-T0))*'#'}{style.RESET}| {style.white}{(T1-T0)/(T5-T0):6.3%} {style.red}{(T2-T1)/(T5-T0):6.3%} {style.cyan}{(T4-T3)/(T5-T0):6.3%} {style.yellow}{(T3-T2)/(T5-T0):6.3%} {style.green}{(T5-T4)/(T5-T0):6.3%}{style.RESET}")
+    if display_performance:
+        for line in timing_statements:
+            print(line)
 
     if not np.allclose(Z_i_corrected.real, Z_i_corrected, atol=1e-6):
         print("Warning: The expectation value contains a significant imaginary part. This should never happen.")
