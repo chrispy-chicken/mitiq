@@ -69,7 +69,7 @@ def diagonalize(U: np.ndarray) -> np.ndarray:
 
     return V_dagger, sorted_eigenvalues
 
-def apply_cyclic_system_permutation(matrix, N_qubits, M=2):
+def apply_cyclic_system_permutation(matrix: np.array, N_qubits: int, M: int=2) -> np.array:
     """
         Function that shifts the rows of a matrix or vector in such a way, 
         that each of the M registers of N_qubit qubits are shifted cyclically.
@@ -94,7 +94,7 @@ def apply_cyclic_system_permutation(matrix, N_qubits, M=2):
         raise TypeError("matrix must be a 2 dimensional array or a listor array of 2 dimensional arrays") 
     return matrix
 
-def apply_symmetric_observable(matrix, N_qubits, observable = None, M=2):
+def apply_symmetric_observable(matrix: np.array, N_qubits: int, observable: Optional[Observable] = None, M: int=2) -> np.array:
     if observable == None or np.allclose(observable, np.array([[1., 0.], [0.,-1.]])):
         # use the default Z observable
         sym_observable_diagonals = []
@@ -112,7 +112,8 @@ def apply_symmetric_observable(matrix, N_qubits, observable = None, M=2):
             return np.array([sod * matrix for sod in sym_observable_diagonals])
         elif matrix.ndim == 3:
             return np.array([sod * mat for sod in sym_observable_diagonals for mat in matrix])
-        return 
+        else:
+            raise ValueError("matrix should be a 2D or 3D ndarray")
 
     else:
         sym_observable_matrices = []
