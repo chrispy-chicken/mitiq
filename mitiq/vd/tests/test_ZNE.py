@@ -11,7 +11,7 @@ from benchmarking_funcs import *
 # %%
 def execute_with_zne(circuit, executor, scale_factors=[1, 2, 3]):
     """Executes a circuit with Zero Noise Extrapolation (ZNE)."""
-    factory = RichardsonFactory(scale_factors=scale_factors)  # ✅ Pass scale_factors here
+    factory = RichardsonFactory(scale_factors=scale_factors)
     mitigated_expval = mitiq.zne.execute_with_zne(
         circuit,
         executor=executor,
@@ -29,7 +29,6 @@ def run_benchmarking_with_zne(run_name, vd_iterations, scale_factors, N_datapoin
 
     rho, gate_count, _ = create_randomised_benchmarking_circuit(N_qubits, N_layers, entanglement=entangled)
     
-    # Ensure the circuit is meaningful
     true_Zi = expectation_Zi(rho)
     while np.all(true_Zi == 0. + 0.j):
         rho, gate_count, _ = create_randomised_benchmarking_circuit(N_qubits, N_layers, entanglement=entangled)
