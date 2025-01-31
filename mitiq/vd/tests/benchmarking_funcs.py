@@ -2,13 +2,19 @@
 # general imports 
 import sys
 sys.path.insert(0, '..')
+
 import numpy as np
 import matplotlib.pyplot as plt
-import cirq, cirq_google
-import mitiq
 import time
 import pickle
+
+import cirq, cirq_google
+import mitiq
+from mitiq.typing import MeasurementResult, QPROGRAM
+from typing import Iterable, List
+
 from vd import execute_with_vd
+
 
 # Generally usable progress bar :DDD
 
@@ -92,9 +98,36 @@ def expectation_Zi(circuit):
     Zi = np.trace(Zi_operators@ dm, axis1=1, axis2=2)
     if not np.allclose(Zi.real, Zi, atol=1e-6):
         print("Warning: The expectation value contains a significant imaginary part. This should never happen.")
+        print(Zi)
         return Zi
     else:
         return Zi.real
+
+def density_simulation_executor(circuit: QPROGRAM) -> np.ndarray:
+    # density matrix
+    dm = cirq.DensityMatrixSimulator().simulate(circuit).final_density_matrix 
+    return dm
+
+def measurement_simulation_executor(circuit: QPROGRAM, reps = 10) -> List[MeasurementResult]:
+
+    if isinstance(circuit, Iterable) and not isinstance(circuit, cirq.Circuit):
+        circuit = circuit[0]
+
+
+    result = cirq.sample(circuit,repetitions=reps).measurements
+    measurements = []
+    
+    sorted_keys = []
+    for key in result:
+        sorted_keys.append(int(key))
+    sorted_keys.sort()
+
+    for key in sorted_keys:
+        measurements.append(result[str(key)])
+    
+    measurements = np.squeeze(measurements, axis=2).T
+
+    return measurements.tolist()
 
 def vector_norm_distance(V, W):
     return np.linalg.norm((V - W))

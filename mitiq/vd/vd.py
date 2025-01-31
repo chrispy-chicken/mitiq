@@ -195,27 +195,6 @@ def execute_with_vd(
     if K%2 == 0:
         K -= 1
 
-    # Changing basis to accomodate different observables 
-    # Out of scope for the mitiq-UvA project
-            
-        # # 1) apply basis change unitary
-        # # for example observable Z -> apply I
-        # # for example observable X -> apply H
-        # basis_change_unitary = diagonalize(observable)[0]
-        
-        # # apply to every single qubit
-        # if not np.allclose(basis_change_unitary, np.eye(2)):
-        #     gate = cirq.MatrixGate(basis_change_unitary)
-        #     for i in range(M*N):
-        #         rho_copy.append(gate(cirq.LineQubit(i)))
-
-    
-    # 2) apply the diagonalization gate B
-    # once again this specific code is for M = 2
-    B_gate = cirq.MatrixGate(Bi_gate)
-    for i in range(N):
-        rho.append(B_gate(cirq.LineQubit(i), cirq.LineQubit(i+N)))
-    
     if not isinstance(executor, Executor):
         executor = Executor(executor)
     T1 =time.time()
@@ -249,6 +228,29 @@ def execute_with_vd(
     
 
     elif executor._executor_return_type in MeasurementResultLike:
+
+        
+        # Changing basis to accomodate different observables 
+        # Out of scope for the mitiq-UvA project
+                
+            # # 1) apply basis change unitary
+        # # for example observable Z -> apply I
+        # # for example observable X -> apply H
+        # basis_change_unitary = diagonalize(observable)[0]
+        
+        # # apply to every single qubit
+        # if not np.allclose(basis_change_unitary, np.eye(2)):
+        #     gate = cirq.MatrixGate(basis_change_unitary)
+        #     for i in range(M*N):
+        #         rho_copy.append(gate(cirq.LineQubit(i)))
+
+        
+        # 2) apply the diagonalization gate B
+        # once again this specific code is for M = 2
+        B_gate = cirq.MatrixGate(Bi_gate)
+        for i in range(N):
+            rho.append(B_gate(cirq.LineQubit(i), cirq.LineQubit(i+N)))
+    
 
         #  3) apply measurements
         # The measurements are only added when the executor returns measurement values
