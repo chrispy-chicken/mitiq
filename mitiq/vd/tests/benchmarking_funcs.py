@@ -4,8 +4,7 @@ import sys
 sys.path.insert(0, '..')
 import numpy as np
 import matplotlib.pyplot as plt
-import cirq, cirq_google
-import mitiq
+import cirq
 import time
 import pickle
 from vd import execute_with_vd
@@ -66,7 +65,7 @@ def create_randomised_benchmarking_circuit(N_qubits, depth ,entanglement=True, s
         if entanglement and l < depth:
             for i in range(entanglement_offset, N_qubits, 2):
                 if i+1 < len(qubits): 
-                    operations.append(cirq_google.ops.SycamoreGate().on(qubits[i], qubits[i+1]))
+                    operations.append(cirq.ISWAP.on(qubits[i], qubits[i+1]))
             entanglement_offset = 1 - entanglement_offset # alternate between 0 and 1
 
 
