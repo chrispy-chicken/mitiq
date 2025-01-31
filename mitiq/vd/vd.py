@@ -3,7 +3,7 @@ import cirq
 import numpy as np
 from mitiq import QPROGRAM, Executor, Observable, QuantumResult, MeasurementResult
 from mitiq.executor.executor import DensityMatrixLike, MeasurementResultLike
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Sequence, List
 import time
 
 
@@ -340,7 +340,7 @@ def executor_execute_with_vd(
             [0, 0, 0, 1]
         ])
 
-    Ei = np.array(list(0. + 0.j for _ in range(N)))
+    Ei = np.array(list(0 for _ in range(N)))
     D = 0
     
     # Forcing odd K, this is a workaround so that D (see end of the function) cannot be 0 accidentally
@@ -397,6 +397,9 @@ def executor_execute_with_vd(
         T5 =time.time()
         timing_statements.append(f"{style.green}{'Computation step':30s} ~ {T5-T4:8.3f} s{style.RESET}")
 
+        timing_statements.append(f"Total time: {T5-T0:8.3f} sec. |{style.white}{int(100*(T1-T0)/(T5-T0))*'#'}{style.red}{int(100*(T2-T1)/(T5-T0))*'#'}{style.cyan}{int(100*(T4-T3)/(T5-T0))*'#'}{style.yellow}{int(100*(T3-T2)/(T5-T0))*'#'}{style.green}{int(100*(T5-T4)/(T5-T0))*'#'}{style.RESET}| {style.white}{(T1-T0)/(T5-T0):6.3%} {style.red}{(T2-T1)/(T5-T0):6.3%} {style.cyan}{(T4-T3)/(T5-T0):6.3%} {style.yellow}{(T3-T2)/(T5-T0):6.3%} {style.green}{(T5-T4)/(T5-T0):6.3%}{style.RESET}")
+    
+
     elif executor._executor_return_type in MeasurementResultLike:
 
         #  3) apply measurements
@@ -406,61 +409,74 @@ def executor_execute_with_vd(
         for i in range(M*N):
             rho.append(cirq.measure(cirq.LineQubit(i), key=f"{i}"))
 
-        if executor._executor_return_type == MeasurementResult: # the executor only measures one shot
-            for _ in range(K):
-                
-                rho_copy = rho.copy()
+        T2 =time.time()
+        timing_statements.append(f"{style.cyan}{'added measurements':30s} ~ {T2-T1:8.3f} s{style.RESET}")
 
-                res = executor.evaluate(rho_copy, observable, force_run_all=True)
+        # if executor._executor_return_type ==  MeasurementResult: # !!!!!!!!!!!!! aaaaaaaaaasagagahgahghaaagaagahaahahgahggggggghghgghghggh
+        
+        res = executor.run(rho, force_run_all=True, reps=K) # TODO make this reps a **kwargs to allow any executor
+        # print(f"{res=}")
 
+        self_packed = True
+        if isinstance(res, str):
+            # print("was string")
+            res = [res]
+            self_packed = False
+        elif isinstance(res[0], int):
+            # print("was int list")
+            res = [res]
+            self_packed = False
 
-                # post processing measurements
-                z1 = res[:N]
-                z2 = res[N:]
-                # print(N)
-                # print(f"res:{res}\nz1: {z1}\nz2: {z2}")
-                # print(f"res:{res[1]}\nz1: {z1[1]}\nz2: {z2[1]}")
-                
-                # for i in range(2*N):
-                #     if i % 2 == 0:
-                #         z1.append(np.squeeze(result.records[str(i)]))
-                #     else:
-                #         z2.append(np.squeeze(result.records[str(i)]))
+        if len(res) == 1: # if the executor only returns a single measurement
+            for _ in range(K-1): # then we measure K times in total
+                if not self_packed:                    
+                    res.append( executor.run(rho, force_run_all=True))
+                else:
+                    res.append( executor.run(rho, force_run_all=True)[0] )
 
-                # # this one is for the pauli Z obvservable
-                # def map_to_eigenvalues(measurement):
-                #     if measurement == 0:
-                #         return 1
-                #     else:
-                #         return -1
-                    
-                # z1 = [map_to_eigenvalues(i) for i in z1]
-                # z2 = [map_to_eigenvalues(i) for i in z2]
+        T3 =time.time()
+        timing_statements.append(f"{style.red}{'Running executor':30s} ~ {T3-T2:8.3f} s{style.RESET}")
 
-                for i in range(N):
-                    
-                    productE = 1
-                    for j in range(N):
-                        if i != j:
-                            productE *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )
+        # post processing measurements
+        for bitStr in res:
+            
+            # This maps 0/1 measurements to 1/-1 measurements, the eigenvalues of the Z observable
+            Z_base_mesurement = 1 - 2* np.array(list(bitStr))
 
-                    Ei[i] += 1/2**N * (z1[i] + z2[i]) * productE
+            # Separate the two systems
+            z1 = Z_base_mesurement[:N]
+            z2 = Z_base_mesurement[N:]
 
-                productD = 1
-                for j in range(N):
-                    productD *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )
+            # Implementing the sum and product from the paper
+            # Note that integer division prevents floating point errors here, 
+            # since each factor in the product or the Ei sum will be either +1 or -1.
+            product_term = 1
+            for j in range(N):
+                product_term *= ( 1 + z1[j] - z2[j] + z1[j]*z2[j] )//2
 
-                D += 1/2**N * productD 
-        else: # the K shots are already performed by the executor 
-            pass
+            D += product_term 
 
-        # Element wise division by D, since we are working with numpy arrays
+            for i in range(N):
+                Ei[i] += (z1[i] + z2[i])//2 * product_term // (( 1 + z1[i] - z2[i] + z1[i]*z2[i] )//2) # undo the j=i term in the product
+
+        T4 =time.time()
+        timing_statements.append(f"{style.yellow}{'Postprocessing step':30s} ~ {T4-T3:8.3f} s{style.RESET}")
+
+        # else: # the K shots are already performed by the executor 
+        #     raise ValueError("We do not have support for running multiple circuits at once, at this moment.")
+
+        # Elementwise division by D, since we are working with numpy arrays
         Z_i_corrected = Ei / D
+        T5 =time.time()
+        timing_statements.append(f"{style.green}{'Computation step':30s} ~ {T5-T4:8.3f} s{style.RESET}")
+
+        timing_statements.append(f"Total time: {T5-T0:8.3f} sec. |{style.white}{int(100*(T1-T0)/(T5-T0))*'#'}{style.cyan}{int(100*(T2-T1)/(T5-T0))*'#'}{style.red}{int(100*(T3-T2)/(T5-T0))*'#'}{style.yellow}{int(100*(T4-T3)/(T5-T0))*'#'}{style.green}{int(100*(T5-T4)/(T5-T0))*'#'}{style.RESET}| {style.white}{(T1-T0)/(T5-T0):6.3%} {style.cyan}{(T2-T1)/(T5-T0):6.3%} {style.red}{(T3-T2)/(T5-T0):6.3%} {style.yellow}{(T4-T3)/(T5-T0):6.3%} {style.green}{(T5-T4)/(T5-T0):6.3%}{style.RESET}")
+    
+
     else:
         raise ValueError("Executor must have a return type of DensityMatrixLike or MeasurementResultLike")
 
 
-    timing_statements.append(f"Total time: {T5-T0:8.3f} sec. |{style.white}{int(100*(T1-T0)/(T5-T0))*'#'}{style.red}{int(100*(T2-T1)/(T5-T0))*'#'}{style.cyan}{int(100*(T4-T3)/(T5-T0))*'#'}{style.yellow}{int(100*(T3-T2)/(T5-T0))*'#'}{style.green}{int(100*(T5-T4)/(T5-T0))*'#'}{style.RESET}| {style.white}{(T1-T0)/(T5-T0):6.3%} {style.red}{(T2-T1)/(T5-T0):6.3%} {style.cyan}{(T4-T3)/(T5-T0):6.3%} {style.yellow}{(T3-T2)/(T5-T0):6.3%} {style.green}{(T5-T4)/(T5-T0):6.3%}{style.RESET}")
     if display_performance:
         for line in timing_statements:
             print(line)
